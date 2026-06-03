@@ -3,41 +3,13 @@ const cheeringMessages = [
   "천천히 해도 괜찮아요. 꾸준함은 생각보다 아주 강해요.",
   "오늘 해야 할 일을 하나씩 해내는 당신은 이미 충분히 멋져요.",
   "조금 부족한 하루여도 괜찮아요. 다시 시작할 힘은 늘 남아 있어요.",
-  "오늘의 당시에게 다정하게 말해줘요. 나는 잘하고 있다고.",
+  "오늘의 나에게 다정하게 말해줘요. 나는 잘하고 있다고.",
   "완벽하지 않아도 괜찮아요. 시작한 것만으로도 충분히 의미 있어요.",
   "작은 체크 하나가 오늘의 리듬을 만들어줄 거예요.",
   "급하지 않아도 돼요. 나만의 속도로 예쁘게 가면 돼요.",
-  "오늘도 당신의 하루가 조금 더 가벼워지길 바라요.",
+  "오늘도 딩신의 하루가 조금 더 가벼워지길 바라요.",
   "할 수 있는 만큼만 해도 괜찮아요. 그만큼도 정말 소중해요."
 ];
-
-const pastelColors = [
-  ["#ffd6e0", "#ff8fab"],
-  ["#d8f3dc", "#74c69d"],
-  ["#d7e3fc", "#89a9f5"],
-  ["#fff3b0", "#f4c95d"],
-  ["#e0c3fc", "#b388eb"],
-  ["#cdeffd", "#70c1ff"],
-  ["#ffe5d9", "#ffb4a2"],
-  ["#dff7f2", "#67d5b5"]
-];
-
-const appLogoText =
-  document.querySelector(".mini-logo")?.textContent?.trim().toUpperCase() ||
-  document.querySelector(".es-static-logo")?.textContent?.trim().toUpperCase() ||
-  document.querySelector(".mk-static-logo")?.textContent?.trim().toUpperCase() ||
-  "MK";
-
-const isES = appLogoText === "ES";
-
-if (!isES) {
-  const randomColor = pastelColors[Math.floor(Math.random() * pastelColors.length)];
-  document.documentElement.style.setProperty("--accent", randomColor[0]);
-  document.documentElement.style.setProperty("--accent-dark", randomColor[1]);
-}
-
-const TODO_STORAGE_KEY = isES ? "esPlannerTodos" : "mkPlannerTodos";
-const DIARY_STORAGE_KEY = isES ? "esSecretDiary" : "mkSecretDiary";
 
 const cover = document.getElementById("cover");
 const app = document.getElementById("app");
@@ -82,6 +54,12 @@ let touchDragIndex = null;
 let touchDragElement = null;
 let touchOffsetY = 0;
 let dragPlaceholder = null;
+let dragAnimationFrame = null;
+let latestDragTop = 0;
+
+const TODO_STORAGE_KEY = "esPlannerTodos";
+const DIARY_STORAGE_KEY = "esSecretDiary";
+const DRAG_LIFT = 8;
 
 const monthNames = [
   "1월", "2월", "3월", "4월", "5월", "6월",
@@ -183,7 +161,10 @@ function openDetail(key, day) {
   detailView.classList.add("active");
 
   renderTodos();
-  setTimeout(() => todoInput.focus(), 300);
+
+  setTimeout(() => {
+    todoInput.focus();
+  }, 300);
 }
 
 function closeDetail() {
@@ -231,7 +212,9 @@ function renderTodos() {
       toggleTodo(index, event.currentTarget);
     });
 
-    deleteButton.addEventListener("click", () => deleteTodo(index));
+    deleteButton.addEventListener("click", () => {
+      deleteTodo(index);
+    });
 
     itemEl.addEventListener("dragstart", handleDragStart);
     itemEl.addEventListener("dragover", handleDragOver);
@@ -275,11 +258,7 @@ function toggleTodo(index, checkButton) {
   setStorage(todos);
 
   if (item.done) {
-    if (isES) {
-      createSmallCheckFirework(checkButton);
-    } else {
-      createSoftFirework(item.text);
-    }
+    createSmallCheckFirework(checkButton);
   }
 
   renderTodos();
@@ -372,8 +351,11 @@ function startTouchReorder(event, index) {
   item.style.width = `${rect.width}px`;
   item.style.position = "fixed";
   item.style.left = `${rect.left}px`;
-  item.style.top = `${rect.top}px`;
-  item.style.transform = "translate3d(0, 0, 0) scale(1.01)";
+  item.style.top = `${rect.top - DRAG_LIFT}px`;
+  item.style.transform = "scale(1.01)";
+  item.style.pointerEvents = "none";
+
+  latestDragTop = rect.top - DRAG_LIFT;
 
   item.setPointerCapture(event.pointerId);
 
@@ -389,9 +371,17 @@ function moveTouchReorder(event) {
   event.stopPropagation();
 
   const currentY = event.clientY;
-  const newTop = currentY - touchOffsetY;
+  latestDragTop = currentY - touchOffsetY - DRAG_LIFT;
 
-  touchDragElement.style.top = `${newTop}px`;
+  if (!dragAnimationFrame) {
+    dragAnimationFrame = requestAnimationFrame(() => {
+      if (touchDragElement) {
+        touchDragElement.style.top = `${latestDragTop}px`;
+      }
+
+      dragAnimationFrame = null;
+    });
+  }
 
   const items = Array.from(todoList.querySelectorAll(".todo-item:not(.touch-dragging)"));
 
@@ -417,11 +407,11 @@ function moveTouchReorder(event) {
 
   if (wrap && wrapRect) {
     if (currentY < wrapRect.top + 60) {
-      wrap.scrollTop -= 8;
+      wrap.scrollTop -= 6;
     }
 
     if (currentY > wrapRect.bottom - 60) {
-      wrap.scrollTop += 8;
+      wrap.scrollTop += 6;
     }
   }
 }
@@ -470,6 +460,11 @@ function getPlaceholderIndex() {
 }
 
 function resetTouchReorder() {
+  if (dragAnimationFrame) {
+    cancelAnimationFrame(dragAnimationFrame);
+    dragAnimationFrame = null;
+  }
+
   if (touchDragElement) {
     touchDragElement.classList.remove("touch-dragging");
     touchDragElement.style.position = "";
@@ -477,6 +472,7 @@ function resetTouchReorder() {
     touchDragElement.style.top = "";
     touchDragElement.style.width = "";
     touchDragElement.style.transform = "";
+    touchDragElement.style.pointerEvents = "";
 
     touchDragElement.removeEventListener("pointermove", moveTouchReorder);
     touchDragElement.removeEventListener("pointerup", endTouchReorder);
@@ -494,6 +490,7 @@ function resetTouchReorder() {
   touchDragElement = null;
   touchOffsetY = 0;
   dragPlaceholder = null;
+  latestDragTop = 0;
 }
 
 function createSmallCheckFirework(target) {
@@ -532,143 +529,6 @@ function createSmallCheckFirework(target) {
       spark.remove();
     }, 900);
   }
-}
-
-function getEmojiSet(text) {
-  const t = text.toLowerCase();
-
-  if (
-    t.includes("신발") ||
-    t.includes("운동화") ||
-    t.includes("구두") ||
-    t.includes("shoes") ||
-    t.includes("shoe") ||
-    t.includes("sneaker")
-  ) {
-    return ["👟", "👞", "🥾", "✨"];
-  }
-
-  if (
-    t.includes("공부") ||
-    t.includes("학업") ||
-    t.includes("시험") ||
-    t.includes("과제") ||
-    t.includes("숙제") ||
-    t.includes("수업") ||
-    t.includes("강의") ||
-    t.includes("학교") ||
-    t.includes("study") ||
-    t.includes("exam") ||
-    t.includes("test")
-  ) {
-    return ["📝", "📄", "📚", "✏️"];
-  }
-
-  if (
-    t.includes("약속") ||
-    t.includes("만나") ||
-    t.includes("친구") ||
-    t.includes("데이트") ||
-    t.includes("미팅") ||
-    t.includes("meeting") ||
-    t.includes("meet")
-  ) {
-    return ["😊", "😄", "🙂", "💫"];
-  }
-
-  const foodMap = [
-    ["피자", "🍕"],
-    ["햄버거", "🍔"],
-    ["버거", "🍔"],
-    ["치킨", "🍗"],
-    ["커피", "☕"],
-    ["케이크", "🍰"],
-    ["라면", "🍜"],
-    ["국수", "🍜"],
-    ["초밥", "🍣"],
-    ["스시", "🍣"],
-    ["밥", "🍚"],
-    ["떡볶이", "🍲"],
-    ["아이스크림", "🍦"],
-    ["사과", "🍎"],
-    ["과일", "🍓"],
-    ["빵", "🥐"],
-    ["샐러드", "🥗"],
-    ["고기", "🥩"],
-    ["파스타", "🍝"],
-    ["우유", "🥛"],
-    ["도넛", "🍩"],
-    ["쿠키", "🍪"],
-    ["김밥", "🍙"],
-    ["샌드위치", "🥪"]
-  ];
-
-  for (const [keyword, emoji] of foodMap) {
-    if (t.includes(keyword)) {
-      return [emoji, emoji, "✨", "💛"];
-    }
-  }
-
-  if (
-    t.includes("먹") ||
-    t.includes("음식") ||
-    t.includes("식사") ||
-    t.includes("저녁") ||
-    t.includes("점심") ||
-    t.includes("아침") ||
-    t.includes("디저트") ||
-    t.includes("food") ||
-    t.includes("eat")
-  ) {
-    return ["🍽️", "🍴", "😋", "✨"];
-  }
-
-  return ["💗", "💛", "💙", "💜", "💚", "🤍"];
-}
-
-function createSoftFirework(text) {
-  const emojis = getEmojiSet(text);
-
-  createSoftFlash();
-
-  const particleCount = 56;
-  const maxDistance = Math.max(window.innerWidth, window.innerHeight) * 0.55;
-
-  for (let i = 0; i < particleCount; i++) {
-    const particle = document.createElement("div");
-    particle.className = "emoji-particle";
-
-    const emoji = emojis[Math.floor(Math.random() * emojis.length)];
-    const angle = Math.random() * Math.PI * 2;
-    const distance = 120 + Math.random() * maxDistance;
-
-    particle.textContent = emoji;
-    particle.style.setProperty("--x", `${Math.cos(angle) * distance}px`);
-    particle.style.setProperty("--y", `${Math.sin(angle) * distance}px`);
-    particle.style.setProperty("--size", `${18 + Math.random() * 24}px`);
-    particle.style.setProperty("--duration", `${1850 + Math.random() * 1150}ms`);
-    particle.style.setProperty("--scale", `${0.7 + Math.random() * 0.85}`);
-    particle.style.setProperty("--rotate", `${Math.random() * 540 - 270}deg`);
-    particle.style.left = `${43 + Math.random() * 14}%`;
-    particle.style.top = `${42 + Math.random() * 16}%`;
-    particle.style.animationDelay = `${Math.random() * 420}ms`;
-
-    document.body.appendChild(particle);
-
-    setTimeout(() => {
-      particle.remove();
-    }, 3600);
-  }
-}
-
-function createSoftFlash() {
-  const flash = document.createElement("div");
-  flash.className = "soft-flash";
-  document.body.appendChild(flash);
-
-  setTimeout(() => {
-    flash.remove();
-  }, 1000);
 }
 
 if (secretLogo) {
