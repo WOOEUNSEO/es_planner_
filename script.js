@@ -14,6 +14,8 @@ const cheeringMessages = [
 const TODO_STORAGE_KEY = "esPlannerTodos";
 const DIARY_STORAGE_KEY = "esSecretDiary";
 
+const GHOST_LIFT = 1;
+
 const cover = document.getElementById("cover");
 const app = document.getElementById("app");
 const calendar = document.getElementById("calendar");
@@ -375,7 +377,7 @@ function startTouchReorder(event, item) {
   dragGhost.style.width = `${itemRect.width}px`;
   dragGhost.style.height = `${itemRect.height}px`;
   dragGhost.style.left = `${itemRect.left}px`;
-  dragGhost.style.top = `${itemRect.top - 2}px`;
+  dragGhost.style.top = `${itemRect.top - GHOST_LIFT}px`;
 
   document.body.appendChild(dragGhost);
 
@@ -402,7 +404,7 @@ function moveTouchReorder(event) {
   if (!dragMoveFrame) {
     dragMoveFrame = requestAnimationFrame(() => {
       const newLeft = latestPointerX - dragOffsetX;
-      const newTop = latestPointerY - dragOffsetY - 2;
+      const newTop = latestPointerY - dragOffsetY - GHOST_LIFT;
 
       dragGhost.style.left = `${newLeft}px`;
       dragGhost.style.top = `${newTop}px`;
