@@ -3,7 +3,7 @@ const cheeringMessages = [
   "천천히 해도 괜찮아요. 꾸준함은 생각보다 아주 강해요.",
   "오늘 해야 할 일을 하나씩 해내는 당신은 이미 충분히 멋져요.",
   "조금 부족한 하루여도 괜찮아요. 다시 시작할 힘은 늘 남아 있어요.",
-  "당신이 피워낼 꽃의 계절은 조금 늦게 올 뿐, 반드시 가장 아름답게 피어날 거예요.",
+  "당신이 피워낼 꽃의 계절은 반드시 가장 아름답게 피어날 거예요.",
   "완벽하지 않아도 괜찮아요. 시작한 것만으로도 충분히 의미 있어요.",
   "작은 체크 하나가 오늘의 리듬을 만들어줄 거예요.",
   "급하지 않아도 돼요. 나만의 속도로 예쁘게 가면 돼요.",
@@ -15,7 +15,6 @@ const TODO_STORAGE_KEY = "esPlannerTodos";
 const DIARY_STORAGE_KEY = "esSecretDiary";
 
 const DRAG_LIFT = 4;
-const DRAG_WEIGHT = 0.42;
 
 const cover = document.getElementById("cover");
 const app = document.getElementById("app");
@@ -60,10 +59,7 @@ let saveTimer = null;
 let touchDragIndex = null;
 let touchDragElement = null;
 let dragPlaceholder = null;
-let dragAnimationFrame = null;
-let dragStartY = 0;
-let dragStartTop = 0;
-let latestDragTop = 0;
+let touchOffsetY = 0;
 
 const monthNames = [
   "1월", "2월", "3월", "4월", "5월", "6월",
@@ -75,13 +71,8 @@ function startApp() {
     const coverEl = document.getElementById("cover");
     const appEl = document.getElementById("app");
 
-    if (coverEl) {
-      coverEl.classList.add("hide");
-    }
-
-    if (appEl) {
-      appEl.classList.add("show");
-    }
+    if (coverEl) coverEl.classList.add("hide");
+    if (appEl) appEl.classList.add("show");
   }, 1650);
 
   setDailyMessage();
@@ -153,9 +144,7 @@ function renderCalendar() {
       today.getMonth() === currentMonth &&
       today.getDate() === day;
 
-    if (isToday) {
-      dayEl.classList.add("today");
-    }
+    if (isToday) dayEl.classList.add("today");
 
     dayEl.innerHTML = `
       <div class="day-number">${day}</div>
@@ -178,31 +167,19 @@ function openDetail(key, day) {
     selectedDateEl.textContent = `${currentYear}년 ${monthNames[currentMonth]} ${day}일`;
   }
 
-  if (calendarView) {
-    calendarView.classList.add("hidden");
-  }
-
-  if (detailView) {
-    detailView.classList.add("active");
-  }
+  if (calendarView) calendarView.classList.add("hidden");
+  if (detailView) detailView.classList.add("active");
 
   renderTodos();
 
   setTimeout(() => {
-    if (todoInput) {
-      todoInput.focus();
-    }
+    if (todoInput) todoInput.focus();
   }, 300);
 }
 
 function closeDetail() {
-  if (detailView) {
-    detailView.classList.remove("active");
-  }
-
-  if (calendarView) {
-    calendarView.classList.remove("hidden");
-  }
+  if (detailView) detailView.classList.remove("active");
+  if (calendarView) calendarView.classList.remove("hidden");
 
   renderCalendar();
 }
@@ -377,9 +354,7 @@ function startTouchReorder(event, index) {
 
   touchDragIndex = index;
   touchDragElement = item;
-  dragStartY = event.clientY;
-  dragStartTop = rect.top;
-  latestDragTop = dragStartTop - DRAG_LIFT;
+  touchOffsetY = event.clientY - rect.top;
 
   document.body.classList.add("reordering");
   todoList.classList.add("reordering-list");
@@ -391,12 +366,13 @@ function startTouchReorder(event, index) {
   item.parentNode.insertBefore(dragPlaceholder, item.nextSibling);
 
   item.classList.add("touch-dragging");
+
   item.style.width = `${rect.width}px`;
   item.style.height = `${rect.height}px`;
   item.style.position = "fixed";
   item.style.left = `${rect.left}px`;
-  item.style.top = `${latestDragTop}px`;
-  item.style.transform = "scale(1.002)";
+  item.style.top = `${rect.top - DRAG_LIFT}px`;
+  item.style.transform = "scale(1.01)";
   item.style.pointerEvents = "none";
 
   item.setPointerCapture(event.pointerId);
@@ -413,21 +389,11 @@ function moveTouchReorder(event) {
   event.stopPropagation();
 
   const currentY = event.clientY;
-  const deltaY = currentY - dragStartY;
+  const newTop = currentY - touchOffsetY - DRAG_LIFT;
 
-  latestDragTop = dragStartTop + deltaY * DRAG_WEIGHT - DRAG_LIFT;
+  touchDragElement.style.top = `${newTop}px`;
 
-  if (!dragAnimationFrame) {
-    dragAnimationFrame = requestAnimationFrame(() => {
-      if (touchDragElement) {
-        touchDragElement.style.top = `${latestDragTop}px`;
-      }
-
-      dragAnimationFrame = null;
-    });
-  }
-
-  const visualMiddleY = latestDragTop + touchDragElement.offsetHeight / 2;
+  const visualMiddleY = newTop + touchDragElement.offsetHeight / 2;
   const items = Array.from(todoList.querySelectorAll(".todo-item:not(.touch-dragging)"));
 
   let inserted = false;
@@ -452,11 +418,11 @@ function moveTouchReorder(event) {
 
   if (wrap && wrapRect) {
     if (currentY < wrapRect.top + 56) {
-      wrap.scrollTop -= 3;
+      wrap.scrollTop -= 5;
     }
 
     if (currentY > wrapRect.bottom - 56) {
-      wrap.scrollTop += 3;
+      wrap.scrollTop += 5;
     }
   }
 }
@@ -507,11 +473,6 @@ function getPlaceholderIndex() {
 }
 
 function resetTouchReorder() {
-  if (dragAnimationFrame) {
-    cancelAnimationFrame(dragAnimationFrame);
-    dragAnimationFrame = null;
-  }
-
   if (touchDragElement) {
     touchDragElement.classList.remove("touch-dragging");
     touchDragElement.style.position = "";
@@ -540,9 +501,7 @@ function resetTouchReorder() {
   touchDragIndex = null;
   touchDragElement = null;
   dragPlaceholder = null;
-  dragStartY = 0;
-  dragStartTop = 0;
-  latestDragTop = 0;
+  touchOffsetY = 0;
 }
 
 function createSmallCheckFirework(target) {
