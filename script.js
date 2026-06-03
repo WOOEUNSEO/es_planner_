@@ -56,12 +56,12 @@ let saveTimer = null;
 
 let touchDragging = false;
 let touchDragElement = null;
-let touchStartY = 0;
+let touchDragStartY = 0;
 let touchCurrentY = 0;
-let touchLastY = 0;
-let touchDragIndex = null;
+let touchOriginalIndex = null;
 let touchAnimationFrame = null;
-let dragMoved = false;
+let touchPointerId = null;
+let touchMoved = false;
 
 const monthNames = [
   "1월", "2월", "3월", "4월", "5월", "6월",
@@ -221,12 +221,12 @@ function renderTodos() {
     const deleteButton = itemEl.querySelector(".delete-btn");
 
     checkButton.addEventListener("click", event => {
-      if (touchDragging || dragMoved) return;
+      if (touchDragging || touchMoved) return;
       toggleTodo(index, event.currentTarget);
     });
 
     deleteButton.addEventListener("click", () => {
-      if (touchDragging || dragMoved) return;
+      if (touchDragging || touchMoved) return;
       deleteTodo(index);
     });
 
@@ -237,7 +237,7 @@ function renderTodos() {
     itemEl.addEventListener("dragend", handleDragEnd);
 
     dragHandle.addEventListener("pointerdown", event => {
-      startTouchReorder(event, index);
+      startTouchReorder(event, itemEl);
     });
 
     todoList.appendChild(itemEl);
@@ -336,34 +336,33 @@ function handleDragEnd() {
   });
 }
 
-function startTouchReorder(event, index) {
+function startTouchReorder(event, item) {
   if (event.pointerType === "mouse") return;
 
   event.preventDefault();
   event.stopPropagation();
 
-  const item = event.currentTarget.closest(".todo-item");
   if (!item || !todoList) return;
 
   touchDragging = true;
-  dragMoved = false;
+  touchMoved = false;
   touchDragElement = item;
-  touchDragIndex = index;
-  touchStartY = event.clientY;
+  touchOriginalIndex = Number(item.dataset.index);
+  touchDragStartY = event.clientY;
   touchCurrentY = event.clientY;
-  touchLastY = event.clientY;
+  touchPointerId = event.pointerId;
 
   document.body.classList.add("reordering");
   todoList.classList.add("reordering-list");
 
   item.classList.add("touch-dragging");
-  item.style.transform = "translate3d(0, -3px, 0) scale(1.004)";
+  item.style.transform = "translate3d(0, -2px, 0) scale(1.002)";
 
-  item.setPointerCapture(event.pointerId);
+  event.currentTarget.setPointerCapture(event.pointerId);
 
-  item.addEventListener("pointermove", moveTouchReorder, { passive: false });
-  item.addEventListener("pointerup", endTouchReorder);
-  item.addEventListener("pointercancel", endTouchReorder);
+  event.currentTarget.addEventListener("pointermove", moveTouchReorder, { passive: false });
+  event.currentTarget.addEventListener("pointerup", endTouchReorder);
+  event.currentTarget.addEventListener("pointercancel", endTouchReorder);
 }
 
 function moveTouchReorder(event) {
@@ -374,43 +373,47 @@ function moveTouchReorder(event) {
 
   touchCurrentY = event.clientY;
 
-  const delta = touchCurrentY - touchStartY;
+  const deltaY = touchCurrentY - touchDragStartY;
 
-  if (Math.abs(delta) > 3) {
-    dragMoved = true;
+  if (Math.abs(deltaY) > 4) {
+    touchMoved = true;
   }
 
-  const softDelta = delta * 0.96;
+  const moveY = deltaY - 2;
 
   if (!touchAnimationFrame) {
     touchAnimationFrame = requestAnimationFrame(() => {
       if (touchDragElement) {
-        touchDragElement.style.transform = `translate3d(0, ${softDelta - 3}px, 0) scale(1.004)`;
+        touchDragElement.style.transform = `translate3d(0, ${moveY}px, 0) scale(1.002)`;
       }
 
       touchAnimationFrame = null;
     });
   }
 
+  const dragRect = touchDragElement.getBoundingClientRect();
+  const dragMiddle = dragRect.top + dragRect.height / 2;
+
   const items = Array.from(todoList.querySelectorAll(".todo-item"));
   const currentIndex = items.indexOf(touchDragElement);
 
   if (currentIndex === -1) return;
 
-  const dragRect = touchDragElement.getBoundingClientRect();
-  const dragMiddle = dragRect.top + dragRect.height / 2;
-
   const previousItem = items[currentIndex - 1];
   const nextItem = items[currentIndex + 1];
 
   if (previousItem) {
-    const prevRect = previousItem.getBoundingClientRect();
-    const prevMiddle = prevRect.top + prevRect.height / 2;
+    const previousRect = previousItem.getBoundingClientRect();
+    const previousMiddle = previousRect.top + previousRect.height / 2;
 
-    if (dragMiddle < prevMiddle) {
+    if (dragMiddle < previousMiddle) {
+      const beforeTop = touchDragElement.getBoundingClientRect().top;
+
       todoList.insertBefore(touchDragElement, previousItem);
-      touchStartY = touchCurrentY;
-      touchDragElement.style.transform = "translate3d(0, -3px, 0) scale(1.004)";
+
+      const afterTop = touchDragElement.getBoundingClientRect().top;
+      touchDragStartY += afterTop - beforeTop;
+      touchDragElement.style.transform = "translate3d(0, -2px, 0) scale(1.002)";
       return;
     }
   }
@@ -420,9 +423,13 @@ function moveTouchReorder(event) {
     const nextMiddle = nextRect.top + nextRect.height / 2;
 
     if (dragMiddle > nextMiddle) {
+      const beforeTop = touchDragElement.getBoundingClientRect().top;
+
       todoList.insertBefore(nextItem, touchDragElement);
-      touchStartY = touchCurrentY;
-      touchDragElement.style.transform = "translate3d(0, -3px, 0) scale(1.004)";
+
+      const afterTop = touchDragElement.getBoundingClientRect().top;
+      touchDragStartY += afterTop - beforeTop;
+      touchDragElement.style.transform = "translate3d(0, -2px, 0) scale(1.002)";
       return;
     }
   }
@@ -431,42 +438,40 @@ function moveTouchReorder(event) {
   const wrapRect = wrap?.getBoundingClientRect();
 
   if (wrap && wrapRect) {
-    if (touchCurrentY < wrapRect.top + 46) {
+    if (touchCurrentY < wrapRect.top + 45) {
       wrap.scrollTop -= 4;
     }
 
-    if (touchCurrentY > wrapRect.bottom - 46) {
+    if (touchCurrentY > wrapRect.bottom - 45) {
       wrap.scrollTop += 4;
     }
   }
-
-  touchLastY = touchCurrentY;
 }
 
 function endTouchReorder(event) {
   if (!touchDragging || !touchDragElement || !todoList) {
-    resetTouchReorder();
+    resetTouchReorder(event);
     return;
   }
 
   event.preventDefault();
   event.stopPropagation();
 
-  const newIndex = Array.from(todoList.querySelectorAll(".todo-item")).indexOf(touchDragElement);
+  const newOrder = Array.from(todoList.querySelectorAll(".todo-item"))
+    .map(item => Number(item.dataset.index));
 
-  if (
-    touchDragIndex !== null &&
-    newIndex !== -1 &&
-    newIndex !== touchDragIndex
-  ) {
-    moveTodo(touchDragIndex, newIndex);
-  }
+  const todos = getStorage();
+  const oldItems = todos[selectedKey] || [];
+  const newItems = newOrder.map(index => oldItems[index]).filter(Boolean);
 
-  resetTouchReorder();
+  todos[selectedKey] = newItems;
+  setStorage(todos);
+
+  resetTouchReorder(event);
   renderTodos();
 }
 
-function resetTouchReorder() {
+function resetTouchReorder(event) {
   if (touchAnimationFrame) {
     cancelAnimationFrame(touchAnimationFrame);
     touchAnimationFrame = null;
@@ -475,10 +480,12 @@ function resetTouchReorder() {
   if (touchDragElement) {
     touchDragElement.classList.remove("touch-dragging");
     touchDragElement.style.transform = "";
+  }
 
-    touchDragElement.removeEventListener("pointermove", moveTouchReorder);
-    touchDragElement.removeEventListener("pointerup", endTouchReorder);
-    touchDragElement.removeEventListener("pointercancel", endTouchReorder);
+  if (event && event.currentTarget && touchPointerId !== null) {
+    try {
+      event.currentTarget.releasePointerCapture(touchPointerId);
+    } catch (error) {}
   }
 
   document.body.classList.remove("reordering");
@@ -489,13 +496,13 @@ function resetTouchReorder() {
 
   touchDragging = false;
   touchDragElement = null;
-  touchDragIndex = null;
-  touchStartY = 0;
+  touchDragStartY = 0;
   touchCurrentY = 0;
-  touchLastY = 0;
+  touchOriginalIndex = null;
+  touchPointerId = null;
 
   setTimeout(() => {
-    dragMoved = false;
+    touchMoved = false;
   }, 80);
 }
 
