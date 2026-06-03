@@ -1326,3 +1326,7 @@ body.reordering .delete-btn {
     min-height: 520px;
   }
 }
+
+.click-word {
+  display: none;
+}
