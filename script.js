@@ -55,13 +55,17 @@ let currentDiaryKey = null;
 let saveTimer = null;
 
 let touchDragging = false;
-let touchDragElement = null;
-let touchDragStartY = 0;
-let touchCurrentY = 0;
-let touchOriginalIndex = null;
-let touchAnimationFrame = null;
-let touchPointerId = null;
-let touchMoved = false;
+let dragOriginalItem = null;
+let dragGhost = null;
+let dragPlaceholder = null;
+let dragStartIndex = null;
+let dragOffsetX = 0;
+let dragOffsetY = 0;
+let dragPointerId = null;
+let dragMoved = false;
+let dragMoveFrame = null;
+let latestPointerX = 0;
+let latestPointerY = 0;
 
 const monthNames = [
   "1월", "2월", "3월", "4월", "5월", "6월",
@@ -221,12 +225,12 @@ function renderTodos() {
     const deleteButton = itemEl.querySelector(".delete-btn");
 
     checkButton.addEventListener("click", event => {
-      if (touchDragging || touchMoved) return;
+      if (touchDragging || dragMoved) return;
       toggleTodo(index, event.currentTarget);
     });
 
     deleteButton.addEventListener("click", () => {
-      if (touchDragging || touchMoved) return;
+      if (touchDragging || dragMoved) return;
       deleteTodo(index);
     });
 
@@ -344,166 +348,176 @@ function startTouchReorder(event, item) {
 
   if (!item || !todoList) return;
 
+  const itemRect = item.getBoundingClientRect();
+
   touchDragging = true;
-  touchMoved = false;
-  touchDragElement = item;
-  touchOriginalIndex = Number(item.dataset.index);
-  touchDragStartY = event.clientY;
-  touchCurrentY = event.clientY;
-  touchPointerId = event.pointerId;
+  dragMoved = false;
+  dragOriginalItem = item;
+  dragStartIndex = Number(item.dataset.index);
+  dragPointerId = event.pointerId;
+
+  dragOffsetX = event.clientX - itemRect.left;
+  dragOffsetY = event.clientY - itemRect.top;
+
+  latestPointerX = event.clientX;
+  latestPointerY = event.clientY;
 
   document.body.classList.add("reordering");
-  todoList.classList.add("reordering-list");
 
-  item.classList.add("touch-dragging");
-  item.style.transform = "translate3d(0, -2px, 0) scale(1.002)";
+  dragPlaceholder = document.createElement("div");
+  dragPlaceholder.className = "drag-placeholder";
+  dragPlaceholder.style.setProperty("--placeholder-height", `${itemRect.height}px`);
+
+  item.parentNode.insertBefore(dragPlaceholder, item.nextSibling);
+
+  dragGhost = item.cloneNode(true);
+  dragGhost.classList.add("drag-ghost");
+  dragGhost.style.width = `${itemRect.width}px`;
+  dragGhost.style.height = `${itemRect.height}px`;
+  dragGhost.style.left = `${itemRect.left}px`;
+  dragGhost.style.top = `${itemRect.top - 2}px`;
+
+  document.body.appendChild(dragGhost);
+
+  item.classList.add("drag-hidden");
 
   event.currentTarget.setPointerCapture(event.pointerId);
 
-  event.currentTarget.addEventListener("pointermove", moveTouchReorder, { passive: false });
-  event.currentTarget.addEventListener("pointerup", endTouchReorder);
-  event.currentTarget.addEventListener("pointercancel", endTouchReorder);
+  document.addEventListener("pointermove", moveTouchReorder, { passive: false });
+  document.addEventListener("pointerup", endTouchReorder);
+  document.addEventListener("pointercancel", endTouchReorder);
 }
 
 function moveTouchReorder(event) {
-  if (!touchDragging || !touchDragElement || !todoList) return;
+  if (!touchDragging || !dragGhost || !dragPlaceholder || !todoList) return;
 
   event.preventDefault();
   event.stopPropagation();
 
-  touchCurrentY = event.clientY;
+  latestPointerX = event.clientX;
+  latestPointerY = event.clientY;
 
-  const deltaY = touchCurrentY - touchDragStartY;
+  dragMoved = true;
 
-  if (Math.abs(deltaY) > 4) {
-    touchMoved = true;
-  }
+  if (!dragMoveFrame) {
+    dragMoveFrame = requestAnimationFrame(() => {
+      const newLeft = latestPointerX - dragOffsetX;
+      const newTop = latestPointerY - dragOffsetY - 2;
 
-  const moveY = deltaY - 2;
+      dragGhost.style.left = `${newLeft}px`;
+      dragGhost.style.top = `${newTop}px`;
 
-  if (!touchAnimationFrame) {
-    touchAnimationFrame = requestAnimationFrame(() => {
-      if (touchDragElement) {
-        touchDragElement.style.transform = `translate3d(0, ${moveY}px, 0) scale(1.002)`;
-      }
-
-      touchAnimationFrame = null;
+      dragMoveFrame = null;
     });
   }
 
-  const dragRect = touchDragElement.getBoundingClientRect();
-  const dragMiddle = dragRect.top + dragRect.height / 2;
+  const items = Array.from(todoList.querySelectorAll(".todo-item:not(.drag-hidden)"));
 
-  const items = Array.from(todoList.querySelectorAll(".todo-item"));
-  const currentIndex = items.indexOf(touchDragElement);
+  let inserted = false;
 
-  if (currentIndex === -1) return;
+  for (const item of items) {
+    const rect = item.getBoundingClientRect();
+    const middle = rect.top + rect.height / 2;
 
-  const previousItem = items[currentIndex - 1];
-  const nextItem = items[currentIndex + 1];
-
-  if (previousItem) {
-    const previousRect = previousItem.getBoundingClientRect();
-    const previousMiddle = previousRect.top + previousRect.height / 2;
-
-    if (dragMiddle < previousMiddle) {
-      const beforeTop = touchDragElement.getBoundingClientRect().top;
-
-      todoList.insertBefore(touchDragElement, previousItem);
-
-      const afterTop = touchDragElement.getBoundingClientRect().top;
-      touchDragStartY += afterTop - beforeTop;
-      touchDragElement.style.transform = "translate3d(0, -2px, 0) scale(1.002)";
-      return;
+    if (latestPointerY < middle) {
+      todoList.insertBefore(dragPlaceholder, item);
+      inserted = true;
+      break;
     }
   }
 
-  if (nextItem) {
-    const nextRect = nextItem.getBoundingClientRect();
-    const nextMiddle = nextRect.top + nextRect.height / 2;
-
-    if (dragMiddle > nextMiddle) {
-      const beforeTop = touchDragElement.getBoundingClientRect().top;
-
-      todoList.insertBefore(nextItem, touchDragElement);
-
-      const afterTop = touchDragElement.getBoundingClientRect().top;
-      touchDragStartY += afterTop - beforeTop;
-      touchDragElement.style.transform = "translate3d(0, -2px, 0) scale(1.002)";
-      return;
-    }
+  if (!inserted) {
+    todoList.appendChild(dragPlaceholder);
   }
 
   const wrap = document.querySelector(".todo-list-wrap");
   const wrapRect = wrap?.getBoundingClientRect();
 
   if (wrap && wrapRect) {
-    if (touchCurrentY < wrapRect.top + 45) {
-      wrap.scrollTop -= 4;
+    if (latestPointerY < wrapRect.top + 42) {
+      wrap.scrollTop -= 5;
     }
 
-    if (touchCurrentY > wrapRect.bottom - 45) {
-      wrap.scrollTop += 4;
+    if (latestPointerY > wrapRect.bottom - 42) {
+      wrap.scrollTop += 5;
     }
   }
 }
 
 function endTouchReorder(event) {
-  if (!touchDragging || !touchDragElement || !todoList) {
-    resetTouchReorder(event);
+  if (!touchDragging || !dragPlaceholder || !dragOriginalItem || !todoList) {
+    resetTouchReorder();
     return;
   }
 
   event.preventDefault();
   event.stopPropagation();
 
-  const newOrder = Array.from(todoList.querySelectorAll(".todo-item"))
-    .map(item => Number(item.dataset.index));
+  const newIndex = Array.from(todoList.children).indexOf(dragPlaceholder);
 
-  const todos = getStorage();
-  const oldItems = todos[selectedKey] || [];
-  const newItems = newOrder.map(index => oldItems[index]).filter(Boolean);
+  if (
+    dragStartIndex !== null &&
+    newIndex !== -1 &&
+    dragStartIndex !== newIndex
+  ) {
+    const todos = getStorage();
+    const items = todos[selectedKey] || [];
 
-  todos[selectedKey] = newItems;
-  setStorage(todos);
+    const movedItem = items.splice(dragStartIndex, 1)[0];
 
-  resetTouchReorder(event);
+    let adjustedIndex = newIndex;
+
+    if (newIndex > dragStartIndex) {
+      adjustedIndex = newIndex - 1;
+    }
+
+    items.splice(adjustedIndex, 0, movedItem);
+    todos[selectedKey] = items;
+    setStorage(todos);
+  }
+
+  resetTouchReorder();
   renderTodos();
 }
 
-function resetTouchReorder(event) {
-  if (touchAnimationFrame) {
-    cancelAnimationFrame(touchAnimationFrame);
-    touchAnimationFrame = null;
+function resetTouchReorder() {
+  if (dragMoveFrame) {
+    cancelAnimationFrame(dragMoveFrame);
+    dragMoveFrame = null;
   }
 
-  if (touchDragElement) {
-    touchDragElement.classList.remove("touch-dragging");
-    touchDragElement.style.transform = "";
+  if (dragOriginalItem) {
+    dragOriginalItem.classList.remove("drag-hidden");
   }
 
-  if (event && event.currentTarget && touchPointerId !== null) {
-    try {
-      event.currentTarget.releasePointerCapture(touchPointerId);
-    } catch (error) {}
+  if (dragGhost) {
+    dragGhost.remove();
   }
+
+  if (dragPlaceholder) {
+    dragPlaceholder.remove();
+  }
+
+  document.removeEventListener("pointermove", moveTouchReorder);
+  document.removeEventListener("pointerup", endTouchReorder);
+  document.removeEventListener("pointercancel", endTouchReorder);
 
   document.body.classList.remove("reordering");
 
-  if (todoList) {
-    todoList.classList.remove("reordering-list");
-  }
-
   touchDragging = false;
-  touchDragElement = null;
-  touchDragStartY = 0;
-  touchCurrentY = 0;
-  touchOriginalIndex = null;
-  touchPointerId = null;
+  dragOriginalItem = null;
+  dragGhost = null;
+  dragPlaceholder = null;
+  dragStartIndex = null;
+  dragOffsetX = 0;
+  dragOffsetY = 0;
+  dragPointerId = null;
+  latestPointerX = 0;
+  latestPointerY = 0;
 
   setTimeout(() => {
-    touchMoved = false;
-  }, 80);
+    dragMoved = false;
+  }, 100);
 }
 
 function moveTodo(fromIndex, toIndex) {
